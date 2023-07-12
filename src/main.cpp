@@ -1,96 +1,108 @@
-#include "SimpleIni.h"
 #include <cctype>
+#include "hooks.h"
+#include "SimpleIni.h"
 
 CSimpleIniA ini(true, false, false);
-bool unscaleItems{ false };
-bool unscaleCharacters{ false };
+bool unlevelOnPluginLoad;
+bool unlevelPostLoad;  // used to unlevel script-added things after the save is loaded
+bool unlevelItems;
+bool unlevelCharacters;
 
-void GameDataListener(F4SE::MessagingInterface::Message* thing)
-{
-	if (thing->type == F4SE::MessagingInterface::kGameDataReady) {
-		if (auto dataHandler = RE::TESDataHandler::GetSingleton(); dataHandler) {
-			if (unscaleItems) {
-				logger::warn("Unleveling item lists");
-				for (auto currentItemList : dataHandler->GetFormArray<RE::TESLevItem>()) {
-					std::int32_t total = (currentItemList->baseListCount + currentItemList->scriptListCount);
-
-					for (int i = 0; i < total; i++) {
-						RE::LEVELED_OBJECT* obj;
-						if (i < currentItemList->baseListCount) {
-							obj = &currentItemList->leveledLists[i];
-						} else {
-							obj = currentItemList->scriptAddedLists[i - (currentItemList->baseListCount - 1)];
-						}
-
-						obj->level = 1;
-					}
-				}
-			} else {
-				logger::warn("Ignoring item lists");
-			}
-
-			if (unscaleCharacters) {
-				logger::warn("Unleveling character lists");
-				for (auto currentCharList : dataHandler->GetFormArray<RE::TESLevCharacter>()) {
-					std::int32_t total = (currentCharList->baseListCount + currentCharList->scriptListCount);
-
-					for (int i = 0; i < total; i++) {
-						RE::LEVELED_OBJECT* obj;
-						if (i < currentCharList->baseListCount) {
-							obj = &currentCharList->leveledLists[i];
-						} else {
-							obj = currentCharList->scriptAddedLists[i - (currentCharList->baseListCount - 1)];
-						}
-
-						obj->level = 1;
-					}
-				}
-			} else {
-				logger::warn("Ignoring character lists");
-			}
-		}
-	}
-
-	return;
-}
-
-std::string toLowercase(const char* str)
+bool GetOptionValue(std::string a_optionName, const char* a_optionValue)
 {
 	std::string lowercaseStr;
-	size_t length = std::strlen(str);
-	for (size_t i = 0; i < length; ++i) {
-		lowercaseStr += static_cast<char>(std::tolower(static_cast<unsigned char>(str[i])));
+
+	std::size_t length = std::strlen(a_optionValue);
+	for (std::size_t i = 0; i < length; ++i) {
+		lowercaseStr += static_cast<char>(std::tolower(static_cast<unsigned char>(a_optionValue[i])));
 	}
-	return lowercaseStr;
+
+	if (lowercaseStr == "true") {
+		return true;
+	} else if (lowercaseStr == "false") {
+		return false;
+	} else {
+		logger::warn("Invalid value passed to {}. Defaulting to false", a_optionName);
+		return false;
+	}
 }
 
 void LoadConfigs()
 {
 	ini.LoadFile("Data\\F4SE\\Plugins\\GLXRM_UnleveledWorld.ini");
 
-	auto itemValue = ini.GetValue("General", "UnscaleItems", "true");
-	std::string itemAnswer = toLowercase(itemValue);
+	auto pluginLoadValue = ini.GetValue("General", "UnlevelOnPluginLoad", "false");
+	unlevelOnPluginLoad = GetOptionValue("UnlevelOnPluginLoad", pluginLoadValue);
 
-	if (itemAnswer == "true") {
-		unscaleItems = true;
-	} else if (itemAnswer == "false") {
-		unscaleItems = false;
-	} else {
-		logger::warn("Invalid value passed to UnscaleItems. Defaulting to false");
-	}
+	auto saveLoadValue = ini.GetValue("General", "UnlevelPostLoad", "false");
+	unlevelPostLoad = GetOptionValue("UnlevelPostLoad", saveLoadValue);
 
-	auto characterValue = ini.GetValue("General", "UnscaleCharacters", "true");
-	std::string characterAnswer = toLowercase(characterValue);
+	auto itemValue = ini.GetValue("General", "UnlevelItems", "false");
+	unlevelItems = GetOptionValue("UnlevelItems", itemValue);
 
-	if (characterAnswer == "true") {
-		unscaleCharacters = true;
-	} else if (characterAnswer == "false") {
-		unscaleCharacters = false;
-	} else {
-		logger::warn("Invalid value passed to UnscaleCharacters. Defaulting to false");
-	}
+	auto characterValue = ini.GetValue("General", "UnlevelCharacters", "false");
+	unlevelCharacters = GetOptionValue("UnlevelCharacters", characterValue);
 
 	ini.Reset();
+}
+
+void UnlevelStuff()
+{
+	if (auto dataHandler = RE::TESDataHandler::GetSingleton(); dataHandler) {
+		if (unlevelItems) {
+			logger::warn("Unleveling item lists");
+			for (auto currentItemList : dataHandler->GetFormArray<RE::TESLevItem>()) {
+				std::int32_t total = (currentItemList->baseListCount + currentItemList->scriptListCount);
+
+				for (int i = 0; i < total; i++) {
+					RE::LEVELED_OBJECT* obj;
+					if (i < currentItemList->baseListCount) {
+						obj = &currentItemList->leveledLists[i];
+					} else {
+						obj = currentItemList->scriptAddedLists[i - (currentItemList->baseListCount - 1)];
+					}
+
+					obj->level = 1;
+				}
+			}
+		} else {
+			logger::warn("Ignoring item lists");
+		}
+
+		if (unlevelCharacters) {
+			logger::warn("Unleveling character lists");
+			for (auto currentCharList : dataHandler->GetFormArray<RE::TESLevCharacter>()) {
+				std::int32_t total = (currentCharList->baseListCount + currentCharList->scriptListCount);
+
+				for (int i = 0; i < total; i++) {
+					RE::LEVELED_OBJECT* obj;
+					if (i < currentCharList->baseListCount) {
+						obj = &currentCharList->leveledLists[i];
+					} else {
+						obj = currentCharList->scriptAddedLists[i - (currentCharList->baseListCount - 1)];
+					}
+
+					if (obj) {
+						obj->level = 1;
+					}
+				}
+			}
+		} else {
+			logger::warn("Ignoring character lists");
+		}
+	}
+}
+
+void ListenerThing(F4SE::MessagingInterface::Message* a_thing)
+{
+	if (a_thing->type == F4SE::MessagingInterface::kGameDataReady) {
+		if (unlevelOnPluginLoad) {
+			logger::info("Game data finished loading. Beginning unleveling...");
+			UnlevelStuff();
+		} else {
+			logger::info("Skipping unleveling on plugin load");
+		}
+	}
 }
 
 extern "C" DLLEXPORT bool F4SEAPI F4SEPlugin_Query(const F4SE::QueryInterface* a_f4se, F4SE::PluginInfo* a_info)
@@ -145,7 +157,14 @@ extern "C" DLLEXPORT bool F4SEAPI F4SEPlugin_Load(const F4SE::LoadInterface* a_f
 	
 	LoadConfigs();
 
-	F4SE::GetMessagingInterface()->RegisterListener(GameDataListener);
+	// hook into the function that injects stuff to LLs to force level to 1
+	if (unlevelPostLoad) {
+		auto& trampoline = F4SE::GetTrampoline();
+		trampoline.create(20);
+		HookLineAndSinker::RegisterHook(trampoline);
+	}
+
+	F4SE::GetMessagingInterface()->RegisterListener(ListenerThing);
 
 	return true;
 }
