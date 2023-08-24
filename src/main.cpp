@@ -3,26 +3,23 @@
 #include "SimpleIni.h"
 
 CSimpleIniA ini(true, false, false);
-bool unlevelOnPluginLoad;
-bool unlevelPostLoad;  // used to unlevel script-added things after the save is loaded
 bool unlevelItems;
 bool unlevelCharacters;
+bool unlevelInjections;  // used to unlevel script-added things after the save is loaded
 
-bool GetOptionValue(std::string a_optionName, const char* a_optionValue)
+bool GetOptionValueBool(const char* a_optionValue)
 {
 	std::string lowercaseStr;
 
-	std::size_t length = std::strlen(a_optionValue);
-	for (std::size_t i = 0; i < length; ++i) {
+	size_t length = std::strlen(a_optionValue);
+
+	for (size_t i = 0; i < length; ++i) {
 		lowercaseStr += static_cast<char>(std::tolower(static_cast<unsigned char>(a_optionValue[i])));
 	}
 
 	if (lowercaseStr == "true") {
 		return true;
-	} else if (lowercaseStr == "false") {
-		return false;
 	} else {
-		logger::warn("Invalid value passed to {}. Defaulting to false", a_optionName);
 		return false;
 	}
 }
@@ -31,17 +28,9 @@ void LoadConfigs()
 {
 	ini.LoadFile("Data\\F4SE\\Plugins\\GLXRM_UnleveledWorld.ini");
 
-	auto pluginLoadValue = ini.GetValue("General", "UnlevelOnPluginLoad", "false");
-	unlevelOnPluginLoad = GetOptionValue("UnlevelOnPluginLoad", pluginLoadValue);
-
-	auto saveLoadValue = ini.GetValue("General", "UnlevelPostLoad", "false");
-	unlevelPostLoad = GetOptionValue("UnlevelPostLoad", saveLoadValue);
-
-	auto itemValue = ini.GetValue("General", "UnlevelItems", "false");
-	unlevelItems = GetOptionValue("UnlevelItems", itemValue);
-
-	auto characterValue = ini.GetValue("General", "UnlevelCharacters", "false");
-	unlevelCharacters = GetOptionValue("UnlevelCharacters", characterValue);
+	unlevelItems = GetOptionValueBool(ini.GetValue("General", "UnlevelItems", "false"));
+	unlevelCharacters = GetOptionValueBool(ini.GetValue("General", "UnlevelCharacters", "false"));
+	unlevelInjections = GetOptionValueBool(ini.GetValue("General", "UnlevelInjections", "false"));
 
 	ini.Reset();
 }
@@ -96,12 +85,8 @@ void UnlevelStuff()
 void ListenerThing(F4SE::MessagingInterface::Message* a_thing)
 {
 	if (a_thing->type == F4SE::MessagingInterface::kGameDataReady) {
-		if (unlevelOnPluginLoad) {
-			logger::info("Game data finished loading. Beginning unleveling...");
-			UnlevelStuff();
-		} else {
-			logger::info("Skipping unleveling on plugin load");
-		}
+		logger::info("Game data finished loading. Beginning unleveling...");
+		UnlevelStuff();
 	}
 }
 
@@ -158,7 +143,7 @@ extern "C" DLLEXPORT bool F4SEAPI F4SEPlugin_Load(const F4SE::LoadInterface* a_f
 	LoadConfigs();
 
 	// hook into the function that injects stuff to LLs to force level to 1
-	if (unlevelPostLoad) {
+	if (unlevelInjections) {
 		auto& trampoline = F4SE::GetTrampoline();
 		trampoline.create(20);
 		HookLineAndSinker::RegisterHook(trampoline);
